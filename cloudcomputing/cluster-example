@@ -170,4 +170,7 @@ addons:
   - name: coredns
   - name: kube-proxy
   - name: aws-ebs-csi-driver
-    serviceAccountRoleARN: "arn:aws:iam::762921032637:role/eksctl-wsc-eks-cluster-addon-iamserviceaccount-Role"
+    wellKnownPolicies:
+      ebsCSIController: true
+    attachPolicyARNs:
+      - "arn:aws:iam::762921032637:policy/wsc-ebs-csi-kms-policy"
