@@ -72,6 +72,12 @@ sed -e "s|<ACCOUNT_ID>|$ACCOUNT_ID|g" \
     cluster.yaml > cluster.rendered.yaml
 
 eksctl create cluster -f cluster.rendered.yaml
+
+      # Kubernetes 내부 도메인 *.cluster.local -> *.wsc.local (CoreDNS 패치와 짝)
+      # AL2023 nodeadm/kubelet 이 --config-dir 의 drop-in 을 병합한다. (AL2 의 /etc/eks/kubelet-extra-args 는 무시됨)
+      - "mkdir -p /etc/kubernetes/kubelet/config.json.d && printf '{\"apiVersion\":\"kubelet.config.k8s.io/v1beta1\",\"kind\":\"KubeletConfiguration\",\"clusterDomain\":\"wsc.local\"}' > /etc/kubernetes/kubelet/config.json.d/20-wsc-clusterdomain.conf"
+      # 노드명 <INSTANCE_ID>.ec2.internal
+      - "IID=$(curl -s -H \"X-aws-ec2-metadata-token: $(curl -s -X PUT 'http://169.254.169.254/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id); hostnamectl set-hostname ${IID}.ec2.internal"
 ```
 
 > IRSA 정책(`wsc-app-policy`, `wsc-fluentbit-policy`, `wsc-ebs-csi-kms-policy`)은
