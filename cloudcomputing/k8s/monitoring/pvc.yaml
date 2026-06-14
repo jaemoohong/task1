@@ -1,0 +1,24 @@
+# PVC (요구사항 9.6) - wsc-sc(CMK 암호화) 사용, monitoring 네임스페이스
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wsc-prometheus-pvc
+  namespace: monitoring
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: wsc-sc
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wsc-grafana-pvc
+  namespace: monitoring
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: wsc-sc
+  resources:
+    requests:
+      storage: 10Gi

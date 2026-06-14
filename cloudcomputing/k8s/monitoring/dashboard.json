@@ -1,0 +1,106 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "title": "wsc-eks-dashboard",
+  "uid": "wsc-eks-dashboard",
+  "schemaVersion": 39,
+  "tags": ["wsc"],
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "TOTAL_NODE_GROUP_COUNT",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "description": "전체 Node Group 수",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "count(count by (label_eks_amazonaws_com_nodegroup) (kube_node_labels))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "APP_POD_COUNT",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "description": "Application Pod 수",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "count(kube_pod_info{namespace=\"wsc\"})"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "NODE_GROUP_CPU_USAGE",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "description": "Node Group 별 CPU 사용률",
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "legendFormat": "{{label_eks_amazonaws_com_nodegroup}}",
+          "expr": "avg by (label_eks_amazonaws_com_nodegroup) (\n  (1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))\n  * on (node) group_left(label_eks_amazonaws_com_nodegroup) kube_node_labels\n) * 100"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "NODE_GROUP_MEMORY_USAGE",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "description": "Node Group 별 Memory 사용률",
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "legendFormat": "{{label_eks_amazonaws_com_nodegroup}}",
+          "expr": "avg by (label_eks_amazonaws_com_nodegroup) (\n  (1 - avg by (node) (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))\n  * on (node) group_left(label_eks_amazonaws_com_nodegroup) kube_node_labels\n) * 100"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "APP_POD_CPU_USAGE",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "description": "Application Pod CPU 사용률 (100분위)",
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "legendFormat": "{{pod}}",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"wsc\", container=\"wsc-cnt\"}[5m]))\n/ sum by (pod) (kube_pod_container_resource_limits{namespace=\"wsc\", resource=\"cpu\"}) * 100"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "APP_POD_MEMORY_USAGE",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "description": "Application Pod Memory 사용률 (100분위)",
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "legendFormat": "{{pod}}",
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"wsc\", container=\"wsc-cnt\"})\n/ sum by (pod) (kube_pod_container_resource_limits{namespace=\"wsc\", resource=\"memory\"}) * 100"
+        }
+      ]
+    }
+  ]
+}

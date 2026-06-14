@@ -1,0 +1,170 @@
+# ===========================================================================
+# eksctl Cluster Manifest (요구사항 9)
+#
+# 적용 전 아래 placeholder 를 terraform output 값으로 치환하세요.
+#   <ACCOUNT_ID>        : terraform output account_id
+#   <EKS_KMS_KEY_ARN>   : terraform output eks_kms_key_arn
+#   <VPC_ID>            : terraform output vpc_id
+#   <WORKLOAD_A_ID>     : workload_subnet_ids["wsc-workload-a"]
+#   <WORKLOAD_C_ID>     : workload_subnet_ids["wsc-workload-c"]
+#
+# 치환 예: envsubst 또는 sed 사용 (README 참고)
+# 적용:  eksctl create cluster -f cluster.yaml
+# ===========================================================================
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: wsc-eks-cluster
+  region: ap-northeast-2
+  version: "1.35"
+
+# ----- 기존(Terraform 생성) VPC / Workload Subnet 재사용 -----
+# EKS 는 Workload Subnet 에서만 운용한다 (요구사항 9).
+vpc:
+  id: "<VPC_ID>"
+  subnets:
+    private:
+      wsc-workload-a:
+        id: "<WORKLOAD_A_ID>"
+        az: ap-northeast-2a
+      wsc-workload-c:
+        id: "<WORKLOAD_C_ID>"
+        az: ap-northeast-2c
+  # Kubernetes API: Public 비활성 / Private 만 활성 (요구사항 9.1)
+  clusterEndpoints:
+    publicAccess: false
+    privateAccess: true
+
+# Workload Subnet 은 인터넷이 없으므로 Private Cluster 로 구성.
+# VPC Endpoint 는 Terraform 에서 이미 생성했으므로 eksctl 생성은 건너뛴다.
+privateCluster:
+  enabled: true
+  skipEndpointCreation: true
+
+# ----- Secret Resource KMS Envelope Encryption (요구사항 9.1) -----
+secretsEncryption:
+  keyARN: "<EKS_KMS_KEY_ARN>"
+
+# ----- Control Plane 모든 로그 -> CloudWatch Logs (요구사항 9) -----
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+
+# ----- OIDC + IRSA ServiceAccount (요구사항 9.4) -----
+iam:
+  withOIDC: true
+  serviceAccounts:
+    # 앱 Pod: EC2 IAM 대신 ServiceAccount 권한 사용
+    - metadata:
+        name: wsc-sa
+        namespace: wsc
+      attachPolicyARNs:
+        - "arn:aws:iam::<ACCOUNT_ID>:policy/wsc-app-policy"
+    # AWS Load Balancer Controller
+    - metadata:
+        name: aws-load-balancer-controller
+        namespace: kube-system
+      wellKnownPolicies:
+        awsLoadBalancerController: true
+    # EBS CSI Driver (CMK 암호화 추가 권한 포함)
+    - metadata:
+        name: ebs-csi-controller-sa
+        namespace: kube-system
+      wellKnownPolicies:
+        ebsCSIController: true
+      attachPolicyARNs:
+        - "arn:aws:iam::<ACCOUNT_ID>:policy/wsc-ebs-csi-kms-policy"
+    # Fluent Bit -> CloudWatch Logs
+    - metadata:
+        name: fluent-bit
+        namespace: logging
+      attachPolicyARNs:
+        - "arn:aws:iam::<ACCOUNT_ID>:policy/wsc-fluentbit-policy"
+
+# ===========================================================================
+# Managed Node Groups (요구사항 9.2 / 9 페이지 5)
+# - 모두 Managed, AL2023, t3.medium, Workload Subnet, 최소 고가용성(AZ 분산)
+# - SSH Password(Skill53##) 접속, curl/ping 동작, EBS KMS 암호화
+# - 노드명 <INSTANCE_ID>.ec2.internal, 내부 도메인 wsc.local
+#   (preBootstrapCommands + CoreDNS 패치로 적용)
+# ===========================================================================
+managedNodeGroups:
+  # ---------- App NodeGroup: label type=app ----------
+  - name: wsc-app-ng
+    amiFamily: AmazonLinux2023
+    instanceType: t3.medium
+    minSize: 2
+    maxSize: 4
+    desiredCapacity: 2
+    privateNetworking: true
+    volumeSize: 30
+    volumeType: gp3
+    volumeEncrypted: true
+    volumeKmsKeyID: "<EKS_KMS_KEY_ARN>"
+    # 앱 Pod 가 노드 IMDS(EC2 IAM)에 접근하지 못하도록 hop limit 1 (요구사항 9.4)
+    disableIMDSv1: true
+    labels:
+      type: app
+    tags:
+      Name: wsc-app-node
+    ssh:
+      enableSsm: true
+    preBootstrapCommands: &common_bootstrap
+      - "dnf -y install iputils bind-utils curl-minimal || true"
+      - "echo 'ec2-user:Skill53##' | chpasswd"
+      - "mkdir -p /etc/ssh/sshd_config.d && echo 'PasswordAuthentication yes' > /etc/ssh/sshd_config.d/60-wsc.conf"
+      - "systemctl restart sshd"
+      # 노드 hostname 을 <INSTANCE_ID>.ec2.internal 로, kubelet clusterDomain 을 wsc.local 로 설정
+      - "IID=$(curl -s -H \"X-aws-ec2-metadata-token: $(curl -s -X PUT 'http://169.254.169.254/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id)"
+      - "hostnamectl set-hostname ${IID}.ec2.internal"
+      - "mkdir -p /etc/eks"
+      - "echo '--hostname-override=${IID}.ec2.internal' >> /etc/eks/kubelet-extra-args || true"
+
+  # ---------- Addon NodeGroup: label type=addon ----------
+  - name: wsc-addon-ng
+    amiFamily: AmazonLinux2023
+    instanceType: t3.medium
+    minSize: 2
+    maxSize: 3
+    desiredCapacity: 2
+    privateNetworking: true
+    volumeSize: 30
+    volumeType: gp3
+    volumeEncrypted: true
+    volumeKmsKeyID: "<EKS_KMS_KEY_ARN>"
+    labels:
+      type: addon
+    tags:
+      Name: wsc-addon-node
+    ssh:
+      enableSsm: true
+    preBootstrapCommands: *common_bootstrap
+
+  # ---------- Monitoring NodeGroup: label type=monitoring ----------
+  - name: wsc-monitoring-ng
+    amiFamily: AmazonLinux2023
+    instanceType: t3.medium
+    minSize: 2
+    maxSize: 3
+    desiredCapacity: 2
+    privateNetworking: true
+    volumeSize: 50
+    volumeType: gp3
+    volumeEncrypted: true
+    volumeKmsKeyID: "<EKS_KMS_KEY_ARN>"
+    labels:
+      type: monitoring
+    tags:
+      Name: wsc-monitoring-node
+    ssh:
+      enableSsm: true
+    preBootstrapCommands: *common_bootstrap
+
+# ----- 필수 Addon (EBS CSI Driver 등) -----
+addons:
+  - name: vpc-cni
+  - name: coredns
+  - name: kube-proxy
+  - name: aws-ebs-csi-driver
+    serviceAccountRoleARN: "arn:aws:iam::<ACCOUNT_ID>:role/eksctl-wsc-eks-cluster-addon-iamserviceaccount-Role"

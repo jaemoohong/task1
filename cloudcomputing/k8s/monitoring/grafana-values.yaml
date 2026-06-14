@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Helm values: grafana/grafana (요구사항 10-2)
+# - admin / Skill53##
+# - /grafana 경로로 서비스 (addon-lb)
+# - Monitoring NodeGroup(type=monitoring) 운용, PVC wsc-grafana-pvc
+# - datasource: http://prometheus-server.monitoring.svc.wsc.local/prometheus
+# - Dashboard: wsc-eks-dashboard (dashboard.json 프로비저닝)
+#
+# 설치:
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   kubectl -n monitoring create configmap wsc-dashboard \
+#       --from-file=dashboard.json=dashboard.json
+#   helm upgrade --install grafana grafana/grafana -n monitoring -f grafana-values.yaml
+# ---------------------------------------------------------------------------
+adminUser: admin
+adminPassword: "Skill53##"
+
+nodeSelector:
+  type: monitoring
+
+persistence:
+  enabled: true
+  existingClaim: wsc-grafana-pvc
+
+# /grafana 하위 경로 서비스
+grafana.ini:
+  server:
+    root_url: "%(protocol)s://%(domain)s/grafana"
+    serve_from_sub_path: true
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-server.monitoring.svc.wsc.local/prometheus
+        isDefault: true
+
+# dashboard.json 을 담은 ConfigMap(wsc-dashboard) 을 사이드카로 로드
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: wsc
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/wsc
+
+dashboardsConfigMaps:
+  wsc: wsc-dashboard
+
+service:
+  type: ClusterIP

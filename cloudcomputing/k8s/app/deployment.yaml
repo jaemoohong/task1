@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# App Deployment (요구사항 9.3 / 9.4 / 3 / Reference02)
+# - Deployment Name: wsc-deploy, Container Name: wsc-cnt
+# - Label: app=wsc-deploy
+# - App NodeGroup(type=app) 에서만 운용
+# - 고가용성: replicas 2 + AZ topologySpread + PDB(pdb.yaml)
+# - IRSA(wsc-sa) 사용, EC2 노드 IAM 미사용 → AWS SDK 가 IMDS 대신 SA 토큰 사용
+# - 환경변수는 ConfigMap(wsc-config) 참조 (직접 명시 금지)
+# - <ECR_REPOSITORY_URL> 을 terraform output ecr_repository_url 로 치환
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wsc-deploy
+  namespace: wsc
+  labels:
+    app: wsc-deploy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wsc-deploy
+  template:
+    metadata:
+      labels:
+        app: wsc-deploy
+    spec:
+      serviceAccountName: wsc-sa
+      # IRSA 토큰만 마운트, 노드(EC2) IAM 사용 차단 보조
+      automountServiceAccountToken: true
+      # App NodeGroup 에서만 스케줄
+      nodeSelector:
+        type: app
+      # AZ 분산으로 최소 고가용성 확보
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: wsc-deploy
+      containers:
+        - name: wsc-cnt
+          image: "<ECR_REPOSITORY_URL>:v1.0.0"
+          ports:
+            - containerPort: 8080
+          # 환경변수는 전부 ConfigMap 참조
+          envFrom:
+            - configMapRef:
+                name: wsc-config
+          # AWS SDK 가 노드 IMDS 로 폴백하지 못하도록 차단 (IRSA 강제)
+          env:
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

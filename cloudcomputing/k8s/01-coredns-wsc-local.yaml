@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# CoreDNS Corefile 패치 (요구사항 9.2)
+# Kubernetes 내부 도메인을 *.cluster.local 에서 *.wsc.local 로 변경한다.
+# kubelet 의 --cluster-domain 또한 wsc.local 로 맞춰야 하며(노드 bootstrap 에서 처리),
+# Grafana datasource(svc.wsc.local) 가 정상 해석되도록 한다.
+#
+# 적용:  kubectl apply -f 01-coredns-wsc-local.yaml && kubectl -n kube-system rollout restart deploy/coredns
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+            lameduck 5s
+        }
+        ready
+        kubernetes wsc.local in-addr.arpa ip6.arpa {
+            pods insecure
+            fallthrough in-addr.arpa ip6.arpa
+            ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        loop
+        reload
+        loadbalance
+    }

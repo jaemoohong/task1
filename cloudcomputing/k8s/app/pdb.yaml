@@ -1,0 +1,11 @@
+# PodDisruptionBudget - 항상 고가용성 유지 (요구사항 9.3)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: wsc-pdb
+  namespace: wsc
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: wsc-deploy

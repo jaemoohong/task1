@@ -1,0 +1,18 @@
+# ---------------------------------------------------------------------------
+# StorageClass (요구사항 9.6)
+# - EBS CSI Driver 기반, Customer Managed Key 로 암호화
+# - WaitForFirstConsumer: Pod 가 실제 배치되는 AZ 에 맞춰 동적 프로비저닝
+# - <EKS_KMS_KEY_ID> 를 terraform 의 eks KMS key id/arn 으로 치환
+# ---------------------------------------------------------------------------
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: wsc-sc
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+parameters:
+  type: gp3
+  encrypted: "true"
+  kmsKeyId: "<EKS_KMS_KEY_ARN>"
