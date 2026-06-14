@@ -41,10 +41,11 @@ resource "aws_s3_bucket_versioning" "static" {
 resource "aws_s3_object" "static_files" {
   for_each = fileset("${path.module}/assets/static", "**")
 
-  bucket                 = aws_s3_bucket.static.id
-  key                    = "static/${each.value}"
-  source                 = "${path.module}/assets/static/${each.value}"
-  etag                   = filemd5("${path.module}/assets/static/${each.value}")
+  bucket = aws_s3_bucket.static.id
+  key    = "static/${each.value}"
+  source = "${path.module}/assets/static/${each.value}"
+  # SSE-KMS 객체는 ETag 가 MD5 가 아니므로 etag 대신 source_hash 로 변경 감지
+  source_hash            = filemd5("${path.module}/assets/static/${each.value}")
   server_side_encryption = "aws:kms"
   kms_key_id             = aws_kms_key.s3.arn
 }
