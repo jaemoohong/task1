@@ -35,38 +35,14 @@ resource "aws_cloudfront_vpc_origin" "alb" {
   }
 }
 
-# ALB 요청은 캐싱하지 않고 모든 QueryString / 헤더 전달
-resource "aws_cloudfront_cache_policy" "no_cache" {
-  name        = "wsc-no-cache"
-  default_ttl = 0
-  max_ttl     = 0
-  min_ttl     = 0
-
-  parameters_in_cache_key_and_forwarded_to_origin {
-    cookies_config {
-      cookie_behavior = "all"
-    }
-    headers_config {
-      header_behavior = "none"
-    }
-    query_strings_config {
-      query_string_behavior = "all"
-    }
-    enable_accept_encoding_gzip = false
-  }
-}
-
-resource "aws_cloudfront_origin_request_policy" "all" {
-  name = "wsc-forward-all"
-  cookies_config {
-    cookie_behavior = "all"
-  }
-  headers_config {
-    header_behavior = "allViewer"
-  }
-  query_strings_config {
-    query_string_behavior = "all"
-  }
+# ALB 요청은 캐싱하지 않고 모든 QueryString / 헤더 / 쿠키를 Origin 으로 전달.
+# 캐싱 비활성 정책에서는 Cache Key 에 Cookie/QueryString 을 넣을 수 없으므로
+# AWS 관리형 정책을 사용한다.
+#   - CachingDisabled            : 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+#   - AllViewerExceptHostHeader  : b689b0a8-53d0-40ab-baf2-68738e2966ac (QueryString/쿠키/헤더 전부 전달)
+locals {
+  cache_policy_caching_disabled = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+  orp_all_viewer_except_host    = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
 }
 
 resource "aws_cloudfront_distribution" "cdn" {
@@ -109,8 +85,8 @@ resource "aws_cloudfront_distribution" "cdn" {
     viewer_protocol_policy   = "redirect-to-https"
     allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods           = ["GET", "HEAD"]
-    cache_policy_id          = aws_cloudfront_cache_policy.no_cache.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.all.id
+    cache_policy_id          = local.cache_policy_caching_disabled
+    origin_request_policy_id = local.orp_all_viewer_except_host
   }
 
   # /health -> ALB (ALB 가 403 반환)
@@ -120,8 +96,8 @@ resource "aws_cloudfront_distribution" "cdn" {
     viewer_protocol_policy   = "redirect-to-https"
     allowed_methods          = ["GET", "HEAD", "OPTIONS"]
     cached_methods           = ["GET", "HEAD"]
-    cache_policy_id          = aws_cloudfront_cache_policy.no_cache.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.all.id
+    cache_policy_id          = local.cache_policy_caching_disabled
+    origin_request_policy_id = local.orp_all_viewer_except_host
   }
 
   restrictions {
